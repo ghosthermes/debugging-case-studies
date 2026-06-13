@@ -1,0 +1,31 @@
+### Case Study 005: The Windows 11 Global Audio Bus Conflict
+
+**Date:** June 13, 2026  
+**Subject:** Windows 11, Audio Engineering, Driver Optimization
+
+#### The Symptom
+A music producer reported a total stereo image collapse while attempting to share high-fidelity DAW audio through a communication client. The audio frequently switched from stereo to mono without user input. Furthermore, using hardware volume keys triggered massive gain spikes and audio dropouts. The machine was an ASUS ROG Zephyrus G15 with a physically compromised 3.5mm headphone jack.
+
+#### Initial Theories
+1. A sample rate mismatch existed between the Windows system clock and the ASIO hardware clock.
+2. The broken physical jack caused a continuous electrical short. This likely triggered "Phantom Jack Detection" loops.
+3. Virtual audio cables were incorrectly summing the stereo bus into a mono signal before hitting the network.
+
+#### The Investigation
+I remoted into the system via AnyDesk and monitored the signal chain using REAPER and custom HAR logs. I identified two hardware-software collisions. First, the ASUS Armoury Crate utility had "Two-Way AI Noise Cancelation" enabled. This service intercepts the global audio bus to apply processing. It was fighting the dedicated ASIO driver for exclusive control. 
+
+Second, the Realtek driver was polling the broken headphone jack every few milliseconds. Every time the electrical short occurred, Windows tried to re-initialize the audio endpoint. This forced a reset of the gain metadata. It also collapsed the summing bus to mono as a fail-safe.
+
+#### The Root Cause
+The primary bottleneck was the proprietary Realtek driver logic. It was too "smart" for the broken hardware. Windows 11 "Audio Enhancements" were also layering software EQ on top of a professional mix. This created a feedback loop where the OS and the hardware were constantly re-negotiating the signal path.
+
+#### The Solution
+I implemented a multi-stage override. First, I disabled all "Audio Enhancements" in the modern Windows Settings app. Next, I performed a forced driver swap. I replaced the proprietary Realtek executable with the generic Microsoft "High Definition Audio Device." 
+
+This generic driver lacks the polling logic for jack detection. It treated the hardware as a dumb output. To ensure the stereo image remained intact during collaboration, I bypassed the communication app's audio engine entirely. I deployed **SonoBus** as a VST on the master fader to create a peer-to-peer, uncompressed stereo stream.
+
+```text
+Registry Path for Manual Override:
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Class\{4d36e96c-e325-11ce-bfc1-08002be10318}\0000\Settings
+
+Action: Created DWORD "ForceDisableJD" and set to 1.
